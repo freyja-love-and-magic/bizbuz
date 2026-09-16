@@ -10,16 +10,169 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tauri::Manager;
 
 const MAX_CARDS: usize = 4;
-const GATEWAY_BDO_URL: &str = "https://allyabase-gateway-12345.netlify.app/bdo/";
-const SAVAGE_URL: &str = "https://allyabase-gateway-12345.netlify.app/savage/";
 const BDO_HASH: &str = "bizbuz-card";
 
-// BDO mints its own server-side uuid on create_user, distinct from the local
-// keypair — a uuid minted against one gateway 404s an update_bdo call on
-// another, so both a card's publish record and the referral link are stored
-// per-env (keyed by this const) rather than as a single value. Bump this
-// whenever GATEWAY_BDO_URL points at a genuinely different BDO deployment.
-const GATEWAY_ENV: &str = "test-12345";
+// ── Which base this install talks to ─────────────────────────────────────────
+//
+// Every base is an allyabase behind path-based nginx routing: TLS terminated
+// on 443, /<service>/ proxied to that service's local port. One hostname, one
+// certificate, everything over real HTTPS — which is also what keeps iOS ATS
+// happy, since the services themselves speak plain HTTP.
+//
+// Which hostname, though, is per-install rather than compiled in. The state on
+// a user's FIRST card picks their base — <state>.8as.world — and that choice
+// is then pinned for the life of the install (see `established_base`).
+//
+// It has to be pinned, not recomputed, because BDO mints its own server-side
+// uuid on create_user: a uuid minted against one base 404s an update_bdo call
+// against another. Letting the base drift after a card is published would
+// silently orphan it. For the same reason every published uuid is stored
+// per-env in `bdo_uuid_by_env`, keyed by `env_key_for` below.
+
+/// Where installs that already published against the old single base stay.
+/// Their uuids only resolve there, so an upgrade must not move them.
+const LEGACY_BASE_HOST: &str = "dev.8as.world";
+
+/// Used when no state has been chosen yet, or the chosen state somehow isn't
+/// one of the fifty. Not a per-state base.
+const FALLBACK_BASE_HOST: &str = "prod.8as.world";
+
+fn base_host_to_env_key(host: &str) -> String {
+    host.replace('.', "-")
+}
+
+fn bdo_url_for(host: &str) -> String {
+    format!("https://{host}/bdo/")
+}
+
+fn savage_url_for(host: &str) -> String {
+    format!("https://{host}/savage/")
+}
+
+/// The fifty states, as two-letter USPS codes. Deliberately fifty and no
+/// more: one base per state is the whole design. DC, PR, and the other
+/// territories have no code here and therefore no base — a card claiming one
+/// falls back to FALLBACK_BASE_HOST rather than inventing a 51st host.
+const STATE_CODES: &[&str] = &[
+    "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA",
+    "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD",
+    "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ",
+    "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC",
+    "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY",
+];
+
+fn is_valid_state(code: &str) -> bool {
+    let upper = code.trim().to_uppercase();
+    STATE_CODES.iter().any(|s| *s == upper)
+}
+
+/// `CA` → `ca.8as.world`. Anything not one of the fifty → the fallback base.
+fn base_host_for_state(state: Option<&str>) -> String {
+    match state {
+        Some(s) if is_valid_state(s) => format!("{}.8as.world", s.trim().to_lowercase()),
+        _ => FALLBACK_BASE_HOST.to_string(),
+    }
+}
+
+// ── Base pinning ─────────────────────────────────────────────────────────────
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BaseRecord {
+    host: String,
+    /// What established it — the state code, or a marker for the two cases
+    /// that don't come from a state. Diagnostic only; `host` is the authority.
+    established_by: String,
+}
+
+fn base_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(data_dir(app)?.join("base.json"))
+}
+
+fn read_base(app: &tauri::AppHandle) -> Option<BaseRecord> {
+    let path = base_path(app).ok()?;
+    fs::read_to_string(path).ok().and_then(|s| serde_json::from_str(&s).ok())
+}
+
+fn write_base(app: &tauri::AppHandle, record: &BaseRecord) -> Result<(), String> {
+    let path = base_path(app)?;
+    let json = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
+    fs::write(path, json).map_err(|e| e.to_string())
+}
+
+/// True if this install published anything before per-state bases existed.
+/// Those uuids live on LEGACY_BASE_HOST and resolve nowhere else, so such an
+/// install has to stay there — the alternative is orphaning live share links.
+fn has_legacy_publishes(app: &tauri::AppHandle) -> bool {
+    let legacy_key = base_host_to_env_key(LEGACY_BASE_HOST);
+    read_cards(app)
+        .map(|store| {
+            store.cards.iter().any(|c| c.bdo_uuid_by_env.contains_key(&legacy_key))
+        })
+        .unwrap_or(false)
+}
+
+/// The base this install uses, pinning it on first call if it isn't pinned yet.
+///
+/// Order matters. An existing install that already published is pinned to the
+/// legacy base before any state is consulted, so upgrading never moves a user
+/// whose cards are already live somewhere.
+fn established_base(app: &tauri::AppHandle) -> String {
+    if let Some(record) = read_base(app) {
+        return record.host;
+    }
+
+    let record = if has_legacy_publishes(app) {
+        BaseRecord {
+            host: LEGACY_BASE_HOST.to_string(),
+            established_by: "legacy-publish".to_string(),
+        }
+    } else {
+        // Nothing published yet and nothing pinned: derive from the first card
+        // that names a state. Callers normally pin explicitly via
+        // `establish_base_from_state` on save; this is the fallback for a
+        // publish that somehow precedes it.
+        let state = read_cards(app)
+            .ok()
+            .and_then(|store| store.cards.iter().find_map(|c| c.state.clone()));
+
+        match state {
+            Some(s) if is_valid_state(&s) => BaseRecord {
+                host: base_host_for_state(Some(&s)),
+                established_by: s.trim().to_uppercase(),
+            },
+            _ => BaseRecord {
+                host: FALLBACK_BASE_HOST.to_string(),
+                established_by: "no-state".to_string(),
+            },
+        }
+    };
+
+    // A write failure here is not fatal: the same inputs recompute the same
+    // host next time. It only means the pin isn't durable yet.
+    let _ = write_base(app, &record);
+    record.host
+}
+
+/// Pins the base from a card's state, if nothing is pinned yet. Called when a
+/// card is saved, so the FIRST card's state is what establishes the base —
+/// later cards, in other states, don't move an install that's already pinned.
+fn establish_base_from_state(app: &tauri::AppHandle, state: Option<&str>) {
+    if read_base(app).is_some() || has_legacy_publishes(app) {
+        return;
+    }
+    let Some(state) = state.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    if !is_valid_state(state) {
+        return;
+    }
+    let record = BaseRecord {
+        host: base_host_for_state(Some(state)),
+        established_by: state.to_uppercase(),
+    };
+    let _ = write_base(app, &record);
+}
 
 // ── Categories ───────────────────────────────────────────────────────────────
 //
@@ -30,54 +183,11 @@ const GATEWAY_ENV: &str = "test-12345";
 // letemcook for the same pattern). Keep in sync by hand if either list
 // changes.
 
-const CATEGORIES: &[(&str, &str)] = &[
-    ("plumber", "Plumber"),
-    ("electrician", "Electrician"),
-    ("house_cleaner", "House Cleaner"),
-    ("caterer", "Caterer"),
-    ("restauranteur", "Restauranteur"),
-    ("chef", "Chef"),
-    ("food_cart", "Food Cart"),
-    ("handyman", "Handyman"),
-    ("landscaper", "Landscaper"),
-    ("painter", "Painter"),
-    ("carpenter", "Carpenter"),
-    ("hvac_technician", "HVAC Technician"),
-    ("photographer", "Photographer"),
-    ("videographer", "Videographer"),
-    ("hair_stylist", "Hair Stylist"),
-    ("barber", "Barber"),
-    ("massage_therapist", "Massage Therapist"),
-    ("personal_trainer", "Personal Trainer"),
-    ("tutor", "Tutor"),
-    ("pet_groomer", "Pet Groomer"),
-    ("dog_walker", "Dog Walker"),
-    ("auto_mechanic", "Auto Mechanic"),
-    ("mover", "Moving Services"),
-    ("interior_designer", "Interior Designer"),
-    ("web_developer", "Web Developer"),
-    ("graphic_designer", "Graphic Designer"),
-    ("accountant", "Accountant"),
-    ("event_planner", "Event Planner"),
-    ("dj_musician", "DJ / Musician"),
-    ("baker", "Baker"),
-    ("florist", "Florist"),
-    ("tailor", "Tailor / Seamstress"),
-];
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct Category {
-    pub slug: String,
-    pub label: String,
-}
-
-#[tauri::command]
-async fn get_categories() -> Result<Vec<Category>, String> {
-    Ok(CATEGORIES
-        .iter()
-        .map(|(slug, label)| Category { slug: slug.to_string(), label: label.to_string() })
-        .collect())
-}
+// (Category selection lives on the shared Canonical Profile now — idothis
+// owns the taxonomy, and BizBuz no longer has its own copy or a
+// `<select>` for it. Any "what kind of business is this" tagging is
+// expressed via the free-form canonical fields the user fills in for
+// cross-app use.)
 
 // ── Data types ───────────────────────────────────────────────────────────────
 
@@ -85,11 +195,21 @@ async fn get_categories() -> Result<Vec<Category>, String> {
 #[serde(rename_all = "camelCase")]
 pub struct Social {
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub instagram: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub x: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tiktok: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub youtube: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub facebook: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub linkedin: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub github: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub codeberg: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub linkedin: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
@@ -111,11 +231,12 @@ pub struct Profile {
     pub website: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub location: Option<String>,
-    /// Coarse business-type tag, e.g. `"food"` for Food & Drink. Deliberately
-    /// narrow for now — see the frontend's category `<select>` for the full
-    /// set of values it can send.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub category: Option<String>,
+    /// Two-letter USPS state code. Distinct from the free-form `location`
+    /// above, which stays unstructured ("The Cosmos" is a valid location).
+    /// The FIRST card to carry one picks this install's base — see
+    /// `established_base`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub bio: Option<String>,
     #[serde(default)]
@@ -124,7 +245,7 @@ pub struct Profile {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub photo: Option<String>,
     /// BDO identity uuid this card is published under, per environment
-    /// (see `GATEWAY_ENV`) — a fresh env has no entry until first publish.
+    /// (see `base_host_to_env_key`) — a fresh base has no entry until first publish.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub bdo_uuid_by_env: HashMap<String, String>,
     /// Full pre-signed savage URL — hosted by allyabase's own infrastructure
@@ -253,6 +374,59 @@ fn sessionless_from_hex(priv_key_hex: &str) -> Result<Sessionless, String> {
     let bytes = hex::decode(priv_key_hex).map_err(|e| e.to_string())?;
     let secret_key = SecretKey::from_slice(&bytes).map_err(|e| e.to_string())?;
     Ok(Sessionless::from_private_key(secret_key))
+}
+
+/// This key's BDO identity if it already has one, without creating it.
+///
+/// Deletion must never mint a keypair: a card that was never published has no
+/// remote record, and creating a key just to "delete" one would be pointless
+/// churn. Returns None when the key has never been used.
+fn existing_bdo_sessionless(app: &tauri::AppHandle, key: &str) -> Option<Sessionless> {
+    read_bdo_keys(app)
+        .get(key)
+        .and_then(|k| sessionless_from_hex(&k.private_key_hex).ok())
+}
+
+/// Unpublishes every remote record a key has, across every base it published
+/// to, and reports which bases failed.
+///
+/// Returns the list of env keys that could NOT be deleted. An empty list means
+/// the remote is clean and the local copy is safe to drop. Callers must not
+/// delete local state while this is non-empty — `bdo_uuid_by_env` and the
+/// keypair are the only way back to those records, so discarding them leaves
+/// the user's contact details published with no way for anyone, including us,
+/// to ever take them down.
+async fn unpublish_everywhere(
+    app: &tauri::AppHandle,
+    key: &str,
+    hash: &str,
+    uuids_by_env: &HashMap<String, String>,
+) -> Vec<String> {
+    if existing_bdo_sessionless(app, key).is_none() {
+        // Never published; nothing remote to remove.
+        return Vec::new();
+    }
+
+    let mut failed = Vec::new();
+    for (env_key, uuid) in uuids_by_env {
+        // Sessionless isn't Clone, and BDO::new takes ownership, so rebuild it
+        // per base from the stored key rather than holding one across the loop.
+        let Some(sessionless) = existing_bdo_sessionless(app, key) else {
+            failed.push(env_key.clone());
+            continue;
+        };
+
+        // env keys are host names with dots swapped for dashes, so this
+        // reverses the mapping to reach the base that actually holds the
+        // record — which may not be the base this install now publishes to.
+        let host = env_key.replace('-', ".");
+        let client = BDO::new(Some(bdo_url_for(&host)), Some(sessionless));
+
+        if client.delete_user(uuid, hash).await.is_err() {
+            failed.push(env_key.clone());
+        }
+    }
+    failed
 }
 
 /// Returns this card's BDO identity, generating and persisting a fresh
@@ -535,14 +709,29 @@ fn render_vcard(profile: &Profile) -> String {
     if let Some(bio) = profile.bio.as_deref().filter(|s| !s.is_empty()) {
         lines.push(format!("NOTE:{bio}"));
     }
-    if let Some(github) = profile.social.github.as_deref().filter(|s| !s.is_empty()) {
-        lines.push(format!("URL;TYPE=GitHub:https://github.com/{github}"));
+    if let Some(handle) = profile.social.instagram.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=Instagram:https://instagram.com/{handle}"));
     }
-    if let Some(codeberg) = profile.social.codeberg.as_deref().filter(|s| !s.is_empty()) {
-        lines.push(format!("URL;TYPE=Codeberg:https://codeberg.org/{codeberg}"));
+    if let Some(handle) = profile.social.x.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=X:https://x.com/{handle}"));
     }
-    if let Some(linkedin) = profile.social.linkedin.as_deref().filter(|s| !s.is_empty()) {
-        lines.push(format!("URL;TYPE=LinkedIn:https://linkedin.com/in/{linkedin}"));
+    if let Some(handle) = profile.social.tiktok.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=TikTok:https://tiktok.com/@{handle}"));
+    }
+    if let Some(handle) = profile.social.youtube.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=YouTube:https://youtube.com/@{handle}"));
+    }
+    if let Some(handle) = profile.social.facebook.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=Facebook:https://facebook.com/{handle}"));
+    }
+    if let Some(handle) = profile.social.linkedin.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=LinkedIn:https://linkedin.com/in/{handle}"));
+    }
+    if let Some(handle) = profile.social.github.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=GitHub:https://github.com/{handle}"));
+    }
+    if let Some(handle) = profile.social.codeberg.as_deref().filter(|s| !s.is_empty()) {
+        lines.push(format!("URL;TYPE=Codeberg:https://codeberg.org/{handle}"));
     }
     if let Some(photo) = profile.photo.as_deref().filter(|s| !s.is_empty()) {
         lines.push(fold_vcard_line(&format!("PHOTO;ENCODING=b;TYPE=JPEG:{photo}")));
@@ -557,6 +746,30 @@ fn render_vcard(profile: &Profile) -> String {
 #[tauri::command]
 async fn load_cards(app: tauri::AppHandle) -> Result<Vec<Profile>, String> {
     Ok(read_cards(&app)?.cards)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BaseInfo {
+    /// The pinned host, or null if the first card hasn't established one yet.
+    pub host: Option<String>,
+    pub established_by: Option<String>,
+    /// The fifty USPS codes, for the card form's picker — served from Rust so
+    /// the list can't drift from the one that maps states to hosts.
+    pub states: Vec<String>,
+}
+
+/// What base this install is pinned to, and the state list to choose from.
+/// Reads only — asking must never pin anything, or merely opening the form
+/// would decide the base.
+#[tauri::command]
+async fn get_base_info(app: tauri::AppHandle) -> Result<BaseInfo, String> {
+    let record = read_base(&app);
+    Ok(BaseInfo {
+        host: record.as_ref().map(|r| r.host.clone()),
+        established_by: record.map(|r| r.established_by),
+        states: STATE_CODES.iter().map(|s| s.to_string()).collect(),
+    })
 }
 
 /// Upserts a card by id. Assigns a fresh id if the profile doesn't have one
@@ -578,14 +791,59 @@ async fn save_card(app: tauri::AppHandle, mut profile: Profile) -> Result<Profil
     store.cards.retain(|c| c.id != profile.id);
     store.cards.push(profile.clone());
     write_cards(&app, &store)?;
+
+    // The first card to name a state pins this install's base. Deliberately
+    // after write_cards, so a save that fails doesn't pin anything, and
+    // deliberately a no-op once pinned — editing an existing card's state, or
+    // adding a second card in another state, must not move a base that cards
+    // have already been published against.
+    establish_base_from_state(&app, profile.state.as_deref());
+
     Ok(profile)
 }
 
+/// Deletes a card locally AND unpublishes it everywhere it was published.
+///
+/// Remote first, and local state is kept if the remote fails. Deleting
+/// locally on a failed unpublish would discard the uuid and keypair that are
+/// the only route back to the published record — leaving the user's name,
+/// email, phone and photo public permanently, with no mechanism for anyone to
+/// remove them. A retryable error is much better than a permanent orphan.
+///
+/// The cost is that deletion needs a network connection. That's deliberate.
 #[tauri::command]
 async fn delete_card(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let store = read_cards(&app)?;
+    let card = store
+        .cards
+        .iter()
+        .find(|c| c.id == id)
+        .ok_or_else(|| "Card not found".to_string())?;
+
+    let failed = unpublish_everywhere(&app, &id, BDO_HASH, &card.bdo_uuid_by_env).await;
+    if !failed.is_empty() {
+        return Err(format!(
+            "Couldn't remove the published copy of this card from {}. \
+             It's still local, so nothing was lost — check your connection and try again.",
+            failed.join(", ")
+        ));
+    }
+
+    // Only now that the remote is clean. Re-read rather than reusing the store
+    // from above, since the await point above means it may be stale.
     let mut store = read_cards(&app)?;
     store.cards.retain(|c| c.id != id);
-    write_cards(&app, &store)
+    write_cards(&app, &store)?;
+
+    // Drop the keypair too — its only purpose was signing for a record that
+    // no longer exists, and keeping it would leave a usable credential behind
+    // for something the user asked to be deleted.
+    let mut keys = read_bdo_keys(&app);
+    if keys.remove(&id).is_some() {
+        write_bdo_keys(&app, &keys)?;
+    }
+
+    Ok(())
 }
 
 /// Publishes (or re-publishes, pushing edits) a card to BDO, embedding a
@@ -601,8 +859,14 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<Profile,
         .position(|c| c.id == card_id)
         .ok_or_else(|| "Card not found".to_string())?;
 
+    // Resolve the base once per publish and use it for all three of the
+    // client, the env key, and the share URL — they must agree, or a card
+    // gets stored under an env key that doesn't match where its uuid lives.
+    let base_host = established_base(&app);
+    let env_key = base_host_to_env_key(&base_host);
+
     let sessionless = load_or_create_bdo_sessionless(&app, &card_id)?;
-    let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
+    let client = BDO::new(Some(bdo_url_for(&base_host)), Some(sessionless));
 
     let svg = render_card_svg(&store.cards[index]);
     let vcard = render_vcard(&store.cards[index]);
@@ -613,7 +877,7 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<Profile,
     card_obj.insert("svg".to_string(), serde_json::Value::String(svg));
     card_obj.insert("vcard".to_string(), serde_json::Value::String(vcard));
 
-    let existing_uuid = store.cards[index].bdo_uuid_by_env.get(GATEWAY_ENV).cloned();
+    let existing_uuid = store.cards[index].bdo_uuid_by_env.get(&env_key).cloned();
 
     let uuid = if let Some(uuid) = existing_uuid {
         client
@@ -635,11 +899,12 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<Profile,
         .sign(format!("{timestamp}{uuid}{BDO_HASH}"))
         .to_hex();
     let share_url = format!(
-        "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={BDO_HASH}&signature={signature}"
+        "{}user/{uuid}/bdo?timestamp={timestamp}&hash={BDO_HASH}&signature={signature}",
+        savage_url_for(&base_host)
     );
 
     let card = &mut store.cards[index];
-    card.bdo_uuid_by_env.insert(GATEWAY_ENV.to_string(), uuid);
+    card.bdo_uuid_by_env.insert(env_key, uuid);
     card.share_url = Some(share_url);
     card.published_at = Some(unix_now_ms_string());
     let updated = card.clone();
@@ -678,7 +943,7 @@ fn referral_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(data_dir(app)?.join("referral.json"))
 }
 
-// Keyed by GATEWAY_ENV — same reasoning as Profile.bdo_uuid_by_env above, a
+// Keyed by the base's env key — same reasoning as Profile.bdo_uuid_by_env, a
 // referral link published on one gateway doesn't exist on another.
 fn read_referral_links(app: &tauri::AppHandle) -> HashMap<String, ReferralLink> {
     let path = match referral_path(app) {
@@ -740,13 +1005,16 @@ fn render_referral_svg(app_store_url: &str) -> String {
 /// static and never needs re-publishing.
 #[tauri::command]
 async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, String> {
+    let base_host = established_base(&app);
+    let env_key = base_host_to_env_key(&base_host);
+
     let mut links = read_referral_links(&app);
-    if let Some(link) = links.get(GATEWAY_ENV) {
+    if let Some(link) = links.get(&env_key) {
         return Ok(link.share_url.clone());
     }
 
     let sessionless = load_or_create_bdo_sessionless(&app, "referral")?;
-    let client = BDO::new(Some(GATEWAY_BDO_URL.to_string()), Some(sessionless));
+    let client = BDO::new(Some(bdo_url_for(&base_host)), Some(sessionless));
 
     let svg = render_referral_svg(APP_STORE_URL);
     let card_json = serde_json::json!({ "svg": svg });
@@ -763,13 +1031,79 @@ async fn get_or_create_referral_link(app: tauri::AppHandle) -> Result<String, St
         .sign(format!("{timestamp}{uuid}{REFERRAL_HASH}"))
         .to_hex();
     let share_url = format!(
-        "{SAVAGE_URL}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}"
+        "{}user/{uuid}/bdo?timestamp={timestamp}&hash={REFERRAL_HASH}&signature={signature}",
+        savage_url_for(&base_host)
     );
 
     let link = ReferralLink { uuid, share_url: share_url.clone() };
-    links.insert(GATEWAY_ENV.to_string(), link);
+    links.insert(env_key, link);
     write_referral_links(&app, &links)?;
     Ok(share_url)
+}
+
+// ── Testing: wipe local state ───────────────────────────────────────────────
+//
+// Removes every file that would carry over "who this device is" from
+// BDO's perspective — cards, per-card and referral sessionless keypairs,
+// the cached referral link, and the legacy pre-multi-card profile — so
+// the next launch is indistinguishable from a fresh install to any
+// allyabase service.
+//
+// Deliberately does NOT touch the App-Group-shared canonical profile
+// (`canonical.profile`) or the bizbuz.profile hand-off record — those
+// are cross-app state owned jointly with linkitylink/gettit/etc., and
+// wiping them here would silently reset those apps too.
+#[tauri::command]
+async fn reset_all_data(app: tauri::AppHandle) -> Result<(), String> {
+    // Unpublish everything first, for the same reason delete_card does: the
+    // files removed below are the only record of what was published and the
+    // only keys that can authorise its removal. Wiping them while records are
+    // still live would orphan every one of them permanently.
+    let mut failed: Vec<String> = Vec::new();
+
+    for card in read_cards(&app)?.cards {
+        for env_key in unpublish_everywhere(&app, &card.id, BDO_HASH, &card.bdo_uuid_by_env).await {
+            failed.push(format!("{} ({})", card.name.clone().unwrap_or_else(|| "card".into()), env_key));
+        }
+    }
+
+    // The referral card is a separate published record under its own identity
+    // ("referral"), and it carries no personal data — but it's still something
+    // the user published, so a reset has to take it down too.
+    let referral_uuids: HashMap<String, String> = read_referral_links(&app)
+        .into_iter()
+        .map(|(env_key, link)| (env_key, link.uuid))
+        .collect();
+    for env_key in unpublish_everywhere(&app, "referral", REFERRAL_HASH, &referral_uuids).await {
+        failed.push(format!("referral link ({env_key})"));
+    }
+
+    if !failed.is_empty() {
+        return Err(format!(
+            "Couldn't remove published copies of: {}. Nothing was deleted locally, \
+             so you can try again — check your connection first.",
+            failed.join(", ")
+        ));
+    }
+
+    let paths = [
+        cards_path(&app)?,
+        bdo_keys_path(&app)?,
+        referral_path(&app)?,
+        legacy_profile_path(&app)?,
+        // The pinned base too: "fresh install" has to include which base this
+        // install talks to, or a reset would keep testing against whichever
+        // state was picked first and never re-exercise the pinning logic.
+        base_path(&app)?,
+    ];
+    for path in paths {
+        match fs::remove_file(&path) {
+            Ok(_) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(format!("Failed to remove {}: {}", path.display(), err)),
+        }
+    }
+    Ok(())
 }
 
 // ── App Group sharing ───────────────────────────────────────────────────────
@@ -811,9 +1145,14 @@ pub struct ImportFromLinkitylinkResult {
     pub name: Option<String>,
     pub bio: Option<String>,
     pub photo: Option<String>,
+    pub instagram: Option<String>,
+    pub x: Option<String>,
+    pub tiktok: Option<String>,
+    pub youtube: Option<String>,
+    pub facebook: Option<String>,
+    pub linkedin: Option<String>,
     pub github: Option<String>,
     pub codeberg: Option<String>,
-    pub linkedin: Option<String>,
     pub website: Option<String>,
     pub skipped_count: usize,
 }
@@ -839,26 +1178,43 @@ fn host_and_path(url: &str) -> (String, String) {
 }
 
 /// Scoped-down equivalent of Linkitylink's `detect_platform`, limited to the
-/// three hosts BizBuz actually has fields for. Returns (field name, handle).
+/// hosts BizBuz actually has fields for. Returns (field name, handle).
 fn social_field_for_url(url: &str) -> Option<(&'static str, String)> {
     let (host, path) = host_and_path(url);
+    let first_segment = |p: &str| p.split('/').next().unwrap_or("").trim_start_matches('@').to_string();
     match host.as_str() {
-        "github.com" | "codeberg.org" => {
-            let handle = path.split('/').next().unwrap_or("").to_string();
-            if handle.is_empty() {
-                None
-            } else {
-                Some((if host == "github.com" { "github" } else { "codeberg" }, handle))
-            }
+        "instagram.com" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("instagram", handle)) }
+        }
+        "x.com" | "twitter.com" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("x", handle)) }
+        }
+        "tiktok.com" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("tiktok", handle)) }
+        }
+        "youtube.com" | "youtu.be" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("youtube", handle)) }
+        }
+        "facebook.com" | "fb.com" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("facebook", handle)) }
         }
         "linkedin.com" => {
             let rest = path.strip_prefix("in/").unwrap_or(&path);
-            let handle = rest.split('/').next().unwrap_or("").to_string();
-            if handle.is_empty() {
-                None
-            } else {
-                Some(("linkedin", handle))
-            }
+            let handle = first_segment(rest);
+            if handle.is_empty() { None } else { Some(("linkedin", handle)) }
+        }
+        "github.com" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("github", handle)) }
+        }
+        "codeberg.org" => {
+            let handle = first_segment(&path);
+            if handle.is_empty() { None } else { Some(("codeberg", handle)) }
         }
         _ => None,
     }
@@ -872,15 +1228,21 @@ async fn import_from_linkitylink(app: tauri::AppHandle) -> Result<ImportFromLink
     let card: LinkitylinkCardMirror =
         serde_json::from_str(&raw).map_err(|e| format!("Couldn't read Linkitylink's shared card: {e}"))?;
 
-    let (mut github, mut codeberg, mut linkedin, mut website) = (None, None, None, None);
+    let (mut instagram, mut x, mut tiktok, mut youtube, mut facebook) = (None, None, None, None, None);
+    let (mut linkedin, mut github, mut codeberg, mut website) = (None, None, None, None);
     let mut skipped = 0usize;
 
     for link in &card.links {
         if let Some((field, handle)) = social_field_for_url(&link.url) {
             match field {
+                "instagram" if instagram.is_none() => instagram = Some(handle),
+                "x" if x.is_none() => x = Some(handle),
+                "tiktok" if tiktok.is_none() => tiktok = Some(handle),
+                "youtube" if youtube.is_none() => youtube = Some(handle),
+                "facebook" if facebook.is_none() => facebook = Some(handle),
+                "linkedin" if linkedin.is_none() => linkedin = Some(handle),
                 "github" if github.is_none() => github = Some(handle),
                 "codeberg" if codeberg.is_none() => codeberg = Some(handle),
-                "linkedin" if linkedin.is_none() => linkedin = Some(handle),
                 _ => skipped += 1,
             }
         } else if website.is_none() {
@@ -894,9 +1256,14 @@ async fn import_from_linkitylink(app: tauri::AppHandle) -> Result<ImportFromLink
         name: card.name,
         bio: card.bio,
         photo: card.photo,
+        instagram,
+        x,
+        tiktok,
+        youtube,
+        facebook,
+        linkedin,
         github,
         codeberg,
-        linkedin,
         website,
         skipped_count: skipped,
     })
@@ -946,6 +1313,24 @@ pub struct CanonicalProfile {
     pub fields: Vec<CanonicalField>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub address: Option<Address>,
+    /// Up to 4 idothis category slugs. Written by idothis; carried forward
+    /// unchanged by every other app on save (None means "don't touch",
+    /// mirroring the existing address pattern).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idothis_categories: Option<Vec<String>>,
+    /// Freelancer's default service ZIP — used by idothis for the discovery
+    /// radius filter, cross-shared so other apps could surface it if they
+    /// gain a "location" UI later. Carry-forward on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub service_zip: Option<String>,
+    /// Freelancer's default hourly rate in cents, for idothis listings.
+    /// Carry-forward on save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idothis_rate_cents: Option<u64>,
+    /// True once the user has connected a Stripe payout destination via
+    /// getpayed. Idothis uses this to gate the "Join" action.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stripe_connected: Option<bool>,
     pub updated_at: Option<String>,
 }
 
@@ -980,10 +1365,18 @@ async fn load_canonical_profile(app: tauri::AppHandle) -> Result<Option<Canonica
 
 #[tauri::command]
 async fn save_canonical_profile(app: tauri::AppHandle, mut profile: CanonicalProfile) -> Result<CanonicalProfile, String> {
-    // This app's own form never sends a real address (no UI for it — see
-    // Address's doc comment above), so always carry forward whatever's
-    // already stored rather than overwriting it with the incoming None.
-    profile.address = load_canonical_profile(app.clone()).await?.and_then(|p| p.address);
+    // This app's own form never sends real values for address / idothis
+    // fields / stripe status (no UI for any of them — see the field doc
+    // comments above), so always carry forward whatever's already stored
+    // rather than overwriting them with the incoming None.
+    let existing = load_canonical_profile(app.clone()).await?;
+    if let Some(existing) = existing {
+        if profile.address.is_none() { profile.address = existing.address; }
+        if profile.idothis_categories.is_none() { profile.idothis_categories = existing.idothis_categories; }
+        if profile.service_zip.is_none() { profile.service_zip = existing.service_zip; }
+        if profile.idothis_rate_cents.is_none() { profile.idothis_rate_cents = existing.idothis_rate_cents; }
+        if profile.stripe_connected.is_none() { profile.stripe_connected = existing.stripe_connected; }
+    }
 
     let mut deduped: Vec<CanonicalField> = Vec::new();
     for mut field in profile.fields.into_iter() {
@@ -1023,8 +1416,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            get_categories,
             load_cards,
+            get_base_info,
             save_card,
             delete_card,
             publish_card,
@@ -1032,7 +1425,8 @@ pub fn run() {
             share_card_to_app_group,
             import_from_linkitylink,
             load_canonical_profile,
-            save_canonical_profile
+            save_canonical_profile,
+            reset_all_data
         ])
         .run(tauri::generate_context!())
         .expect("error while running bizbuz");

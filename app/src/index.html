@@ -8,8 +8,10 @@
 </head>
 <body>
     <main id="app">
-        <button type="button" class="profile-nav-btn" id="profile-nav-btn">Profile</button>
-        <button type="button" class="back-nav-btn" id="back-to-cards-btn" hidden>◀ My Cards</button>
+        <header class="app-header">
+            <button type="button" class="back-nav-btn" id="back-to-cards-btn" hidden>◀ My Cards</button>
+            <button type="button" class="profile-nav-btn" id="profile-nav-btn">Profile</button>
+        </header>
 
         <!-- My Cards view -->
         <section id="cards-view" class="view" hidden>
@@ -23,6 +25,15 @@
             <section class="referral-section">
                 <p class="referral-label">Invite friends to BizBuz</p>
                 <button type="button" class="btn btn-secondary" id="referral-share-btn">Share BizBuz</button>
+            </section>
+
+            <!-- Not a debug affordance any more: this is the in-app data
+                 deletion App Store Review Guideline 5.1.1(v) requires, and it
+                 now unpublishes the remote copies rather than only clearing
+                 local state. Labelled for a user, not a tester. -->
+            <section class="referral-section">
+                <p class="referral-label">Delete everything — your cards, and the published copies anyone with a link can see</p>
+                <button type="button" class="btn btn-danger" id="reset-all-btn">Delete All My Data</button>
             </section>
         </section>
 
@@ -59,25 +70,21 @@
                 <label>Location
                     <input type="text" id="field-location" placeholder="The Cosmos">
                 </label>
-                <label>Category
-                    <select id="field-category">
-                        <option value="">—</option>
+                <!-- Separate from Location above, which stays free-form. The
+                     state on the first card decides which base this install
+                     publishes to, so it has to be a real two-letter code. -->
+                <label>State
+                    <select id="field-state">
+                        <option value="">Select a state…</option>
                     </select>
                 </label>
+                <p class="hint" id="state-hint" hidden></p>
                 <label>Bio
                     <textarea id="field-bio" rows="3" placeholder="A short bio"></textarea>
                 </label>
 
-                <p class="section-label">Social</p>
-                <label>GitHub
-                    <input type="text" id="field-github" placeholder="username">
-                </label>
-                <label>Codeberg
-                    <input type="text" id="field-codeberg" placeholder="username">
-                </label>
-                <label>LinkedIn
-                    <input type="text" id="field-linkedin" placeholder="username">
-                </label>
+                <p class="section-label">Socials</p>
+                <div class="socials-grid" id="socials-grid"></div>
 
                 <div class="form-actions">
                     <button type="submit" class="btn btn-primary">Save</button>
@@ -94,10 +101,10 @@
                 <h1 class="card-name" id="card-name"></h1>
                 <p class="card-title" id="card-title"></p>
                 <p class="card-company" id="card-company"></p>
-                <p class="card-company" id="card-category"></p>
                 <p class="card-bio" id="card-bio"></p>
 
                 <div class="contact-info" id="card-contact"></div>
+                <div class="card-socials" id="card-socials"></div>
 
                 <div class="form-actions">
                     <button type="button" class="btn btn-primary" id="share-btn">Share</button>

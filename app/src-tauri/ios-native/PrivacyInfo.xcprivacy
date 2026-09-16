@@ -2,12 +2,158 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- No tracking. Apple defines tracking as linking data from this app with
+	     Third-Party Data for targeted advertising or advertising measurement,
+	     or sharing it with a data broker. BizBuz does neither: there is no
+	     analytics SDK, no ad SDK, and nothing is shared with third parties.
+	     Consequently the app needs no ATT prompt. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>
 	<array/>
+
+	<!-- ── What leaves the device ───────────────────────────────────────────
+	     Everything below is disclosed because publishing a card transmits it
+	     to a BDO server that stores it in readable form indefinitely. Apple's
+	     test for "collect" is transmission plus retention beyond servicing the
+	     request in real time — NOT whether the developer ever reads it. We
+	     never read it; it is still collection.
+
+	     The optional-disclosure carve-out does not apply. It requires all four
+	     of its criteria, and the third — "collection occurs only in infrequent
+	     cases that are not part of the app's primary functionality" — fails,
+	     since publishing a card IS the primary functionality.
+
+	     All of it is Linked because it is literally the user's contact
+	     identity. Purpose is App Functionality throughout: the data is the
+	     product, not a byproduct.
+
+	     NOT declared here, deliberately:
+	       - Cards that have never been published. They live only in local
+	         cards.json and no part of them is transmitted.
+	       - The cross-app Canonical Profile. App Group storage is on-device;
+	         sharing between our own apps on the same phone is not collection.
+	       - Any analytics or diagnostics. There are none. -->
 	<key>NSPrivacyCollectedDataTypes</key>
-	<array/>
+	<array>
+		<!-- Profile.name -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeName</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.email -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeEmailAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.phone -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhoneNumber</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.location (free-form, e.g. "Portland, OR") and
+		     Profile.state (two-letter code). Coarse rather than a street
+		     address, but still a physical location the user supplies. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhysicalAddress</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.title, .company, .website, and the eight Social handles
+		     (Instagram, X, TikTok, YouTube, Facebook, LinkedIn, GitHub,
+		     Codeberg). Contact routes that aren't name/email/phone. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContactInfo</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.photo — a base64 JPEG, embedded in the published SVG. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypePhotosOrVideos</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.bio — free text the user writes about themselves. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherUserContent</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+
+		<!-- Profile.id and the BDO-assigned uuid in bdoUuidByEnv, which
+		     identify the published record. -->
+		<dict>
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeUserID</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
+	</array>
+
 	<key>NSPrivacyAccessedAPITypes</key>
 	<array>
 		<dict>
@@ -15,22 +161,22 @@
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<!-- CA92.1: read/write info accessible only to this app itself.
+				<!-- CA92.1: information accessible only to this app itself.
 				     BizbuzQuickActionsBridge.m / QuickActionsPlugin.swift use
-				     UserDefaults.standard as a same-app mailbox for a pending Home
-				     Screen Quick Action between cold launch and the webview coming
-				     up - no App Group, nothing shared with other apps. -->
+				     UserDefaults.standard as a same-app mailbox for a pending
+				     Home Screen Quick Action between cold launch and the
+				     webview coming up — no App Group, nothing shared. -->
 				<string>CA92.1</string>
-				<!-- TODO before first TestFlight upload with App Group sharing:
-				     tauri-plugin-app-group/ios/Sources/AppGroupPlugin.swift now
-				     also reads/writes UserDefaults(suiteName: "group.freyja.idothis"),
-				     shared with Linkitylink - a DIFFERENT reason code than CA92.1
-				     applies to App-Group-scoped access. Look up the current correct
-				     code on Apple's published Required Reason API list (Privacy
-				     Manifest Files docs) rather than guessing here, then add it as
-				     a second <string> entry in this array. This only affects the
-				     App Store Connect privacy report at upload time, not the build
-				     itself, so it's safe to leave open until then. -->
+				<!-- 1C8F.1: information accessible only to apps, app
+				     extensions, and App Clips in the SAME App Group.
+				     tauri-plugin-app-group/ios/Sources/AppGroupPlugin.swift
+				     reads and writes UserDefaults(suiteName:
+				     "group.club.home.front") — the cross-app Canonical Profile
+				     and the BizBuz <-> Linkitylink card handoff. App-Group
+				     access is a different reason from CA92.1, so both are
+				     declared; omitting this one is what triggers ITMS-91053 on
+				     upload. -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 	</array>

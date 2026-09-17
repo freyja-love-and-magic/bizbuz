@@ -607,9 +607,17 @@ fn render_card_svg(profile: &Profile) -> String {
     if let Some(bio) = profile.bio.as_deref().filter(|s| !s.is_empty()) {
         y += 34;
         let lines = wrap_text(bio, 42, 3);
-        for line in &lines {
+        // Quotes wrap the whole bio, not each line. Every line used to get its
+        // own pair, so a two-line bio rendered as
+        //   "Analytical engines, mostly. Occasionally"
+        //   "poetry."
+        // which reads as two separate quotations.
+        let last = lines.len().saturating_sub(1);
+        for (i, line) in lines.iter().enumerate() {
+            let open = if i == 0 { "\u{201C}" } else { "" };
+            let close = if i == last { "\u{201D}" } else { "" };
             body.push_str(&format!(
-                r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-style="italic" font-size="12" fill="rgba({PALETTE_INK_RGB},0.7)" text-anchor="middle">"{}"</text>
+                r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-style="italic" font-size="12" fill="rgba({PALETTE_INK_RGB},0.7)" text-anchor="middle">{open}{}{close}</text>
 "#,
                 escape_xml(line),
             ));

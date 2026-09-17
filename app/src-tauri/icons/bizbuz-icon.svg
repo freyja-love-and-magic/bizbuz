@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- BizBuz app icon — stacked business cards.
+       HomeVentory palette: midnight slate ground (#1F2933) matching the
+       sibling apps, glacier white front card (#F7F9FA), deep evergreen
+       back card and contact marks (#2E5E4E / #4A7D6B).
+
+       Regenerate the PNG sets with scripts/make-icons.sh. -->
+  <rect width="1024" height="1024" fill="#1F2933"/>
+
+  <!-- Whole mark is grouped so it can be scaled and optically centred in one
+       place. The eye centres on the white front card, not the bounding box,
+       so the group sits slightly above true centre to compensate. -->
+  <g transform="translate(512 494) scale(1.09) translate(-512 -512)">
+
+    <!-- Back card: tilted, peeking out top-left and top-right. The stack is
+         what reads as "business cards" rather than one generic rectangle. -->
+    <g transform="rotate(-9 512 512)">
+      <rect x="252" y="318" width="520" height="330" rx="44" fill="#2E5E4E"/>
+    </g>
+
+    <!-- Front card -->
+    <rect x="272" y="380" width="520" height="330" rx="44" fill="#F7F9FA"/>
+
+    <!-- Avatar dot and two text lines. Chunky and well separated so they
+         stay distinct at 40px, the smallest iOS size. The second line is a
+         solid lighter evergreen rather than an opacity blend — at small
+         sizes the blend rendered as a muddy low-contrast grey. -->
+    <circle cx="382" cy="504" r="58" fill="#2E5E4E"/>
+    <rect x="478" y="466" width="238" height="36" rx="18" fill="#2E5E4E"/>
+    <rect x="478" y="542" width="158" height="36" rx="18" fill="#4A7D6B"/>
+  </g>
+</svg>

@@ -75,14 +75,29 @@ export function generateVCard(profile) {
 
     // Add social links as URLs
     if (profile.social) {
+        if (profile.social.instagram) {
+            lines.push(`URL;TYPE=Instagram:https://instagram.com/${profile.social.instagram}`);
+        }
+        if (profile.social.x) {
+            lines.push(`URL;TYPE=X:https://x.com/${profile.social.x}`);
+        }
+        if (profile.social.tiktok) {
+            lines.push(`URL;TYPE=TikTok:https://tiktok.com/@${profile.social.tiktok}`);
+        }
+        if (profile.social.youtube) {
+            lines.push(`URL;TYPE=YouTube:https://youtube.com/@${profile.social.youtube}`);
+        }
+        if (profile.social.facebook) {
+            lines.push(`URL;TYPE=Facebook:https://facebook.com/${profile.social.facebook}`);
+        }
+        if (profile.social.linkedin) {
+            lines.push(`URL;TYPE=LinkedIn:https://linkedin.com/in/${profile.social.linkedin}`);
+        }
         if (profile.social.github) {
             lines.push(`URL;TYPE=GitHub:https://github.com/${profile.social.github}`);
         }
         if (profile.social.codeberg) {
             lines.push(`URL;TYPE=Codeberg:https://codeberg.org/${profile.social.codeberg}`);
-        }
-        if (profile.social.linkedin) {
-            lines.push(`URL;TYPE=LinkedIn:https://linkedin.com/in/${profile.social.linkedin}`);
         }
     }
 

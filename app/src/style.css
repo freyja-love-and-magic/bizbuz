@@ -1,11 +1,31 @@
 :root {
-    --green: #10b981;
-    --green-dark: #059669;
-    --purple: #a78bfa;
-    --bg: #0a001a;
-    --white-70: rgba(255, 255, 255, 0.7);
-    --white-10: rgba(255, 255, 255, 0.1);
-    --white-05: rgba(255, 255, 255, 0.05);
+    /* HomeVentory palette */
+    --midnight-slate: #1F2933;
+    --glacier-white: #F7F9FA;
+    --soft-mint: #AEE1D6;
+    --warm-sandstone: #E5D7C5;
+    --deep-evergreen: #2E5E4E;
+    --signal-blue: #4FA3F7;
+
+    /* Legacy aliases mapped to HomeVentory palette */
+    --green: var(--deep-evergreen);
+    --green-dark: #1F4A3E;
+    --purple: var(--signal-blue);
+    --bg: var(--glacier-white);
+    --fg: var(--midnight-slate);
+    --white-70: rgba(31, 41, 51, 0.7);
+    --white-10: rgba(31, 41, 51, 0.08);
+    --white-05: #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1a1a1a;
+        --fg: var(--glacier-white);
+        --white-70: rgba(247, 249, 250, 0.7);
+        --white-10: rgba(247, 249, 250, 0.1);
+        --white-05: #2a2a2a;
+    }
 }
 
 * {
@@ -17,7 +37,7 @@
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: var(--bg);
-    color: white;
+    color: var(--fg);
     min-height: 100vh;
 }
 
@@ -26,10 +46,13 @@ body {
     margin: 0 auto;
     /* body stays unpadded so its background fills the whole viewport
        (including behind the notch/Dynamic Island and home indicator) —
-       the content itself is what needs to clear the safe areas. */
+       the content itself is what needs to clear the safe areas. Nav
+       buttons now live in a static .app-header at the top, so the bottom
+       padding just needs to keep .status-msg (fixed at ~24px + safe-area
+       from the bottom) from sitting on the last line of content. */
     padding: calc(24px + env(safe-area-inset-top))
              calc(20px + env(safe-area-inset-right))
-             calc(90px + env(safe-area-inset-bottom))
+             calc(40px + env(safe-area-inset-bottom))
              calc(20px + env(safe-area-inset-left));
 }
 
@@ -71,7 +94,7 @@ input, textarea, select {
     border: 1px solid var(--white-10);
     border-radius: 10px;
     padding: 12px 14px;
-    color: white;
+    color: var(--fg);
     font-size: 15px;
     font-family: inherit;
 }
@@ -90,10 +113,124 @@ textarea {
 }
 
 .section-label {
-    font-size: 14px;
-    color: var(--purple);
-    margin-top: 8px;
+    font-size: 12px;
+    color: var(--white-70);
+    margin-top: 16px;
+    margin-bottom: 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
 }
+
+/* ── Socials icon grid (Edit view) ──────────────────────────────────────── */
+
+.socials-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.social-icon-btn {
+    aspect-ratio: 1;
+    border: 1px solid var(--white-10);
+    background: var(--white-05);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    color: var(--white-70);
+    transition: transform 0.15s;
+    font-family: inherit;
+    overflow: hidden;
+}
+.social-icon-btn:active { transform: translateY(1px); }
+.social-icon-btn svg {
+    width: 50%;
+    height: 50%;
+    max-width: 30px;
+    max-height: 30px;
+    display: block;
+    fill: currentColor;
+}
+.social-icon-btn .letter-mono {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+}
+.social-icon-btn.filled {
+    background: var(--green);
+    border-color: var(--green);
+    color: var(--glacier-white);
+}
+.social-icon-btn.expanded {
+    box-shadow: 0 0 0 2px var(--green);
+}
+
+.social-disclosure {
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    background: var(--white-05);
+    border: 1px solid var(--white-10);
+    border-radius: 10px;
+}
+.social-disclosure-title {
+    display: block;
+    font-size: 11px;
+    color: var(--white-70);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 6px;
+}
+.social-disclosure-body {
+    display: flex;
+    gap: 8px;
+}
+.social-disclosure-body input {
+    flex: 1;
+    padding: 8px 12px;
+    font-size: 14px;
+    border-radius: 8px;
+}
+.social-disclosure-body button {
+    padding: 8px 14px;
+    font-size: 13px;
+    width: auto;
+}
+
+/* ── Card view socials row (viewing a saved card) ───────────────────────── */
+
+.card-socials {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin: 12px 0 20px;
+}
+.card-social-link {
+    width: 44px;
+    height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: var(--white-05);
+    border: 1px solid var(--white-10);
+    text-decoration: none;
+    padding: 0;
+    transition: transform 0.15s;
+    overflow: hidden;
+}
+.card-social-link:active { transform: translateY(1px); }
+.card-social-link svg {
+    width: 55%;
+    height: 55%;
+    display: block;
+    fill: currentColor;
+}
+.card-social-link .letter-mono { font-size: 18px; font-weight: 700; line-height: 1; }
 
 .btn {
     padding: 14px 20px;
@@ -107,8 +244,8 @@ textarea {
 
 .btn-primary {
     background: linear-gradient(135deg, var(--green) 0%, var(--green-dark) 100%);
-    color: white;
-    box-shadow: 0 4px 20px rgba(16, 185, 129, 0.3);
+    color: var(--glacier-white);
+    box-shadow: 0 4px 20px rgba(46, 94, 78, 0.3);
 }
 
 .btn-primary:active {
@@ -117,14 +254,14 @@ textarea {
 
 .btn-secondary {
     background: var(--white-10);
-    color: white;
+    color: var(--fg);
     border: 1px solid var(--white-10);
 }
 
 .btn-danger {
     background: transparent;
-    color: #ef4444;
-    border: 1px solid rgba(239, 68, 68, 0.4);
+    color: #ff3131;
+    border: 1px solid rgba(255, 49, 49, 0.4);
     margin-top: 14px;
     width: 100%;
 }
@@ -215,7 +352,7 @@ textarea {
 
 .card-tile.filled {
     background: var(--white-05);
-    border: 1px solid rgba(16, 185, 129, 0.3);
+    border: 1px solid rgba(46, 94, 78, 0.3);
 }
 
 .card-tile.filled .avatar {
@@ -229,7 +366,7 @@ textarea {
 .card-tile.filled .card-tile-name {
     font-size: 13px;
     font-weight: 600;
-    color: white;
+    color: var(--fg);
     text-align: center;
     max-width: 100%;
     overflow: hidden;
@@ -247,11 +384,11 @@ textarea {
 
 .card {
     background: var(--white-05);
-    border: 1px solid rgba(16, 185, 129, 0.3);
+    border: 1px solid rgba(46, 94, 78, 0.3);
     border-radius: 24px;
     padding: 36px 28px;
     text-align: center;
-    box-shadow: 0 0 40px rgba(16, 185, 129, 0.1);
+    box-shadow: 0 0 40px rgba(46, 94, 78, 0.1);
     /* Generous clearance so the card's own bottom buttons (Share to App
        Group, the pay-link row) never sit behind the fixed My Cards/Profile
        button row below. */
@@ -269,8 +406,8 @@ textarea {
     justify-content: center;
     font-size: 36px;
     font-weight: bold;
-    color: white;
-    box-shadow: 0 0 30px rgba(16, 185, 129, 0.3);
+    color: var(--glacier-white);
+    box-shadow: 0 0 30px rgba(46, 94, 78, 0.3);
     background-size: cover;
     background-position: center;
 }
@@ -395,7 +532,7 @@ textarea {
 .link-entry-actions button {
     background: var(--white-10);
     border: none;
-    color: white;
+    color: var(--fg);
     width: 28px;
     height: 28px;
     border-radius: 8px;
@@ -421,28 +558,31 @@ textarea {
 
 /* ── Canonical profile / back nav buttons ────────────────────────────────── */
 
+.app-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    min-height: 40px;
+}
+
 .profile-nav-btn,
 .back-nav-btn {
-    position: fixed;
-    bottom: calc(20px + env(safe-area-inset-bottom));
     background: var(--white-10);
     border: 1px solid var(--white-10);
-    color: white;
+    color: var(--fg);
     font-size: 14px;
     font-weight: 600;
-    padding: 12px 22px;
-    border-radius: 14px;
+    padding: 10px 18px;
+    border-radius: 12px;
     cursor: pointer;
-    z-index: 100;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    font-family: inherit;
 }
 
+/* Push Profile to the right regardless of whether back-nav is shown or
+   hidden — an auto left-margin does this without needing an empty spacer. */
 .profile-nav-btn {
-    right: calc(20px + env(safe-area-inset-right));
-}
-
-.back-nav-btn {
-    left: calc(20px + env(safe-area-inset-left));
+    margin-left: auto;
 }
 
 /* ── Profile view: sticky footer ──────────────────────────────────────────

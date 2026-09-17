@@ -12,6 +12,27 @@ use tauri::Manager;
 const MAX_CARDS: usize = 4;
 const BDO_HASH: &str = "bizbuz-card";
 
+// ── Palette ──────────────────────────────────────────────────────────────────
+//
+// HomeVentory light mode, matching the app UI and the app icon. These were
+// previously two separate copies of the pre-HomeVentory dark scheme
+// (#0a001a / #10b981 / #a78bfa) declared inside render_card_svg and
+// render_referral_svg, so a published card looked like a different product
+// from the app that made it.
+//
+// PALETTE_* is also sent to savage on publish (see publish_card), which
+// themes the page chrome around the card — savage otherwise falls back to
+// that same old BizBuz scheme for every app it serves.
+const PALETTE_BG: &str = "#F7F9FA";        // glacier white
+const PALETTE_GREEN: &str = "#2E5E4E";     // deep evergreen
+const PALETTE_GREEN_DARK: &str = "#1F4A3E";
+const PALETTE_ACCENT: &str = "#4FA3F7";    // signal blue
+/// Midnight slate (#1F2933) as rgb components. The published SVGs need the ink colour at
+/// several opacities, and a Rust raw string can't carry an inline hex literal
+/// (`r#"..."#` terminates at the first `"#`), so these are interpolated as
+/// rgba(...) instead of written as hex.
+const PALETTE_INK_RGB: &str = "31,41,51";
+
 // ── Which base this install talks to ─────────────────────────────────────────
 //
 // Every base is an allyabase behind path-based nginx routing: TLS terminated
@@ -525,9 +546,9 @@ fn wrap_text(text: &str, max_chars: usize, max_lines: usize) -> Vec<String> {
 /// and the app's own style.css.
 fn render_card_svg(profile: &Profile) -> String {
     const WIDTH: u32 = 400;
-    const BG: &str = "#0a001a";
-    const GREEN: &str = "#10b981";
-    const PURPLE: &str = "#a78bfa";
+    const BG: &str = PALETTE_BG;
+    const GREEN: &str = PALETTE_GREEN;
+    const PURPLE: &str = PALETTE_ACCENT;
 
     let name = profile.name.clone().unwrap_or_else(|| "".to_string());
     let mut y: u32 = 190;
@@ -577,7 +598,7 @@ fn render_card_svg(profile: &Profile) -> String {
     if let Some(company) = profile.company.as_deref().filter(|s| !s.is_empty()) {
         y += 22;
         body.push_str(&format!(
-            r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="13" fill="rgba(255,255,255,0.6)" text-anchor="middle">{}</text>
+            r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="13" fill="rgba({PALETTE_INK_RGB},0.6)" text-anchor="middle">{}</text>
 "#,
             escape_xml(company),
         ));
@@ -588,7 +609,7 @@ fn render_card_svg(profile: &Profile) -> String {
         let lines = wrap_text(bio, 42, 3);
         for line in &lines {
             body.push_str(&format!(
-                r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-style="italic" font-size="12" fill="rgba(255,255,255,0.7)" text-anchor="middle">"{}"</text>
+                r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-style="italic" font-size="12" fill="rgba({PALETTE_INK_RGB},0.7)" text-anchor="middle">"{}"</text>
 "#,
                 escape_xml(line),
             ));
@@ -603,13 +624,13 @@ fn render_card_svg(profile: &Profile) -> String {
         let escaped_label = escape_xml(&label);
         if let Some(href) = href {
             body.push_str(&format!(
-                r#"<a href="{}"><text x="{contact_x}" y="{y}" font-family="sans-serif" font-size="14" fill="rgba(255,255,255,0.85)">{icon}  {escaped_label}</text></a>
+                r#"<a href="{}"><text x="{contact_x}" y="{y}" font-family="sans-serif" font-size="14" fill="rgba({PALETTE_INK_RGB},0.85)">{icon}  {escaped_label}</text></a>
 "#,
                 escape_xml(&href),
             ));
         } else {
             body.push_str(&format!(
-                r#"<text x="{contact_x}" y="{y}" font-family="sans-serif" font-size="14" fill="rgba(255,255,255,0.85)">{icon}  {escaped_label}</text>
+                r#"<text x="{contact_x}" y="{y}" font-family="sans-serif" font-size="14" fill="rgba({PALETTE_INK_RGB},0.85)">{icon}  {escaped_label}</text>
 "#,
             ));
         }
@@ -636,7 +657,7 @@ fn render_card_svg(profile: &Profile) -> String {
 
     y += 24;
     body.push_str(&format!(
-        r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.4)" text-anchor="middle">a Freyja offering</text>
+        r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="11" fill="rgba({PALETTE_INK_RGB},0.4)" text-anchor="middle">a Freyja offering</text>
 "#
     ));
 
@@ -877,6 +898,22 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<Profile,
     card_obj.insert("svg".to_string(), serde_json::Value::String(svg));
     card_obj.insert("vcard".to_string(), serde_json::Value::String(vcard));
 
+    // Themes savage's page chrome — the ground behind the card and the "Save
+    // Contact" button — to match the card itself. Without this savage falls
+    // back to BizBuz's pre-HomeVentory colours for every app it serves, so
+    // the card would sit on a near-black page with a bright green button.
+    //
+    // savage only accepts literal hex here and ignores anything else, since
+    // these values land in a style attribute on an otherwise script-free page.
+    card_obj.insert(
+        "palette".to_string(),
+        serde_json::json!({
+            "background": PALETTE_BG,
+            "accent": PALETTE_GREEN,
+            "accentText": PALETTE_BG,
+        }),
+    );
+
     let existing_uuid = store.cards[index].bdo_uuid_by_env.get(&env_key).cloned();
 
     let uuid = if let Some(uuid) = existing_uuid {
@@ -968,10 +1005,10 @@ fn write_referral_links(app: &tauri::AppHandle, links: &HashMap<String, Referral
 fn render_referral_svg(app_store_url: &str) -> String {
     const WIDTH: u32 = 400;
     const HEIGHT: u32 = 440;
-    const BG: &str = "#0a001a";
-    const GREEN: &str = "#10b981";
-    const PURPLE: &str = "#a78bfa";
-    const CARD_BACK: &str = "#4c3d73";
+    const BG: &str = PALETTE_BG;
+    const GREEN: &str = PALETTE_GREEN;
+    const PURPLE: &str = PALETTE_ACCENT;
+    const CARD_BACK: &str = PALETTE_GREEN_DARK;
 
     let cx = WIDTH / 2;
     let button_y: u32 = 300;
@@ -980,14 +1017,14 @@ fn render_referral_svg(app_store_url: &str) -> String {
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}">
 <defs><linearGradient id="markGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{GREEN}"/><stop offset="100%" stop-color="{PURPLE}"/></linearGradient></defs>
 <rect x="0" y="0" width="{WIDTH}" height="{HEIGHT}" fill="{BG}"/>
-<rect x="{}" y="70" width="140" height="95" rx="18" fill="{CARD_BACK}"/>
-<rect x="{}" y="95" width="140" height="95" rx="18" fill="url(#markGradient)"/>
-<circle cx="{}" cy="122" r="11" fill="{BG}"/>
-<text x="{cx}" y="210" font-family="sans-serif" font-size="34" font-weight="bold" fill="url(#markGradient)" text-anchor="middle">BizBuz</text>
-<text x="{cx}" y="240" font-family="sans-serif" font-size="14" fill="rgba(255,255,255,0.7)" text-anchor="middle">Digital business cards, made simple.</text>
+<rect x="{}" y="58" width="140" height="95" rx="18" fill="{CARD_BACK}"/>
+<rect x="{}" y="83" width="140" height="95" rx="18" fill="url(#markGradient)"/>
+<circle cx="{}" cy="110" r="11" fill="{BG}"/>
+<text x="{cx}" y="216" font-family="sans-serif" font-size="34" font-weight="bold" fill="{GREEN}" text-anchor="middle">BizBuz</text>
+<text x="{cx}" y="240" font-family="sans-serif" font-size="14" fill="rgba({PALETTE_INK_RGB},0.7)" text-anchor="middle">Digital business cards, made simple.</text>
 <text x="{cx}" y="270" font-family="sans-serif" font-size="14" fill="{PURPLE}" text-anchor="middle">You've been invited to try it out.</text>
 <a href="{}"><rect x="{}" y="{button_y}" width="240" height="56" rx="16" fill="{GREEN}"/><text x="{cx}" y="{}" font-family="sans-serif" font-size="18" font-weight="bold" fill="{BG}" text-anchor="middle">Get BizBuz</text></a>
-<text x="{cx}" y="400" font-family="sans-serif" font-size="11" fill="rgba(255,255,255,0.4)" text-anchor="middle">a Freyja offering</text>
+<text x="{cx}" y="400" font-family="sans-serif" font-size="11" fill="rgba({PALETTE_INK_RGB},0.4)" text-anchor="middle">a Freyja offering</text>
 </svg>"#,
         cx - 90,
         cx - 70,
@@ -1430,4 +1467,56 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running bizbuz");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Renders a fully-populated card and writes it out, so the published SVG
+    /// can actually be looked at rather than reasoned about. Colour changes in
+    /// particular are not reviewable by reading hex constants — the text fills
+    /// were white-on-dark, and flipping the ground to glacier white without
+    /// flipping them would have shipped an invisible card.
+    ///
+    ///   cargo test render_sample_card -- --nocapture
+    ///   rsvg-convert -w 400 /tmp/bizbuz-card-sample.svg -o /tmp/card.png
+    #[test]
+    fn render_sample_card() {
+        let mut social = Social::default();
+        social.instagram = Some("ada".into());
+        social.github = Some("ada".into());
+
+        let profile = Profile {
+            id: "sample".into(),
+            name: Some("Ada Lovelace".into()),
+            title: Some("Software Enchantress".into()),
+            company: Some("Planet Nine".into()),
+            email: Some("ada@planetnine.app".into()),
+            phone: Some("+1 (555) 123-4567".into()),
+            website: Some("planetnine.app".into()),
+            location: Some("Portland, OR".into()),
+            state: Some("OR".into()),
+            bio: Some("Analytical engines, mostly. Occasionally poetry.".into()),
+            social,
+            photo: None,
+            ..Default::default()
+        };
+
+        let svg = render_card_svg(&profile);
+        std::fs::write("/tmp/bizbuz-card-sample.svg", &svg).unwrap();
+
+        // Guard the mistake that prompted this test: no white-on-white text.
+        assert!(!svg.contains("rgba(255,255,255"), "white text on a light card");
+        assert!(svg.contains(PALETTE_BG), "card ground should use the palette");
+        println!("wrote /tmp/bizbuz-card-sample.svg ({} bytes)", svg.len());
+    }
+
+    #[test]
+    fn render_sample_referral() {
+        let svg = render_referral_svg(APP_STORE_URL);
+        std::fs::write("/tmp/bizbuz-referral-sample.svg", &svg).unwrap();
+        assert!(!svg.contains("rgba(255,255,255"), "white text on a light card");
+        println!("wrote /tmp/bizbuz-referral-sample.svg ({} bytes)", svg.len());
+    }
 }

@@ -41,7 +41,13 @@
         <section id="edit-view" class="view" hidden>
             <header class="view-header">
                 <h1>Your BizBuz Profile</h1>
-                <p class="subtitle">This stays on your device — nothing is uploaded.</p>
+                <!-- This used to read "This stays on your device — nothing is
+                     uploaded," which stopped being true once saving started
+                     triggering a background publish. The card's contents go to
+                     a public URL, which is what the privacy manifest discloses
+                     as eight collected data types — the UI has to say the same
+                     thing. -->
+                <p class="subtitle">Saved on your device. Publishing creates a link anyone you share it with can open.</p>
             </header>
 
             <form id="profile-form">
@@ -56,16 +62,16 @@
                     <input type="text" id="field-title" placeholder="Software Enchantress">
                 </label>
                 <label>Company
-                    <input type="text" id="field-company" placeholder="Planet Nine">
+                    <input type="text" id="field-company" placeholder="Freyja - Love and Magic">
                 </label>
                 <label>Email
-                    <input type="email" id="field-email" placeholder="ada@planetnine.app">
+                    <input type="email" id="field-email" placeholder="ada@example.com">
                 </label>
                 <label>Phone
                     <input type="tel" id="field-phone" placeholder="+1 (555) 123-4567">
                 </label>
                 <label>Website
-                    <input type="text" id="field-website" placeholder="planetnine.app">
+                    <input type="text" id="field-website" placeholder="example.com">
                 </label>
                 <label>Location
                     <input type="text" id="field-location" placeholder="The Cosmos">

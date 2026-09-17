@@ -210,7 +210,7 @@ function getDemoProfile() {
         location: 'The Cosmos',
         bio: 'Building the future of privacy-first technology.',
         social: {
-            github: 'planet-nine-app',
+            github: 'freyja-love-and-magic',
             twitter: 'planetnine'
         }
     };

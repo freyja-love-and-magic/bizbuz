@@ -33,14 +33,14 @@ Tauri commands, invoked from `main.js`:
 | `import_from_linkitylink` | Reads `linkitylink.card` from the App Group and maps its links into BizBuz's name/bio/photo/website/social fields |
 | `load_canonical_profile` / `save_canonical_profile` | The shared cross-app Canonical Profile (see below) |
 
-No server of its own for the live app — BizBuz is a thin client over two allyabase services, both currently pointed at `https://allyabase-gateway-12345.netlify.app/`:
+No server of its own for the live app — BizBuz is a thin client over two allyabase services. Which base is per-install, not compiled in: the state on the user's FIRST card pins them to `https://<state>.8as.world/`, with `prod.8as.world` as the fallback and `dev.8as.world` retained for installs that published before per-state bases existed. See the "Which base this install talks to" block in `lib.rs`.
 
 | Service | Const | Role |
 |---|---|---|
 | **BDO** | `GATEWAY_BDO_URL` | Public storage for each published card and the referral card — one sessionless keypair per card (BDO's public slot is keyed by pubKey, so one shared identity would let every card overwrite the others; verified against allyabase's `db.js`) |
 | **savage** | `SAVAGE_URL` | Renders whatever `svg` field is present on a published BDO record as a live webpage, at a locally pre-signed, non-expiring URL — no round trip needed to get a shareable link |
 
-`GATEWAY_ENV = "test-12345"` namespaces each card's `bdoUuidByEnv` and the referral link, so pointing the app at a different gateway deployment later won't collide with what's already published under this one.
+Each card's `bdoUuidByEnv` is keyed by the base's hostname with dots swapped for dashes (`ca-8as-world`), so a card published against one base is never confused with another — BDO mints its own uuid per base and a uuid from one 404s against another. The pin in `base.json` is write-once for the same reason.
 
 ### Card lifecycle
 

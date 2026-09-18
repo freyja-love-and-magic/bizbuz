@@ -14,24 +14,29 @@ const BDO_HASH: &str = "bizbuz-card";
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 //
-// HomeVentory light mode, matching the app UI and the app icon. These were
-// previously two separate copies of the pre-HomeVentory dark scheme
-// (#0a001a / #10b981 / #a78bfa) declared inside render_card_svg and
-// render_referral_svg, so a published card looked like a different product
-// from the app that made it.
+// HomeVentory dark, matching the app's own dark mode in style.css (the
+// `prefers-color-scheme: dark` block: #1a1a1a ground, glacier-white text) and
+// Linkitylink's published card, so the two apps' web cards are the same.
+//
+// Evergreen stays for FILLED surfaces — the avatar circle and the button —
+// but not for text or thin strokes on the ground: #2E5E4E on #1a1a1a is about
+// 2.3:1, too low to read. Those use soft mint instead, from the same palette.
 //
 // PALETTE_* is also sent to savage on publish (see publish_card), which
 // themes the page chrome around the card — savage otherwise falls back to
 // that same old BizBuz scheme for every app it serves.
-const PALETTE_BG: &str = "#F7F9FA";        // glacier white
+const PALETTE_BG: &str = "#1a1a1a";        // app dark-mode ground
 const PALETTE_GREEN: &str = "#2E5E4E";     // deep evergreen
-const PALETTE_GREEN_DARK: &str = "#1F4A3E";
 const PALETTE_ACCENT: &str = "#4FA3F7";    // signal blue
-/// Midnight slate (#1F2933) as rgb components. The published SVGs need the ink colour at
+const PALETTE_MINT: &str = "#AEE1D6";      // soft mint — accent text on dark
+/// Text drawn ON an evergreen fill (avatar initials, button label). Was
+/// written as {BG}, which only worked while BG happened to be light.
+const PALETTE_ON_GREEN: &str = "#F7F9FA";  // glacier white
+/// Glacier white (#F7F9FA) as rgb components — the ink on the dark ground. The published SVGs need the ink colour at
 /// several opacities, and a Rust raw string can't carry an inline hex literal
 /// (`r#"..."#` terminates at the first `"#`), so these are interpolated as
 /// rgba(...) instead of written as hex.
-const PALETTE_INK_RGB: &str = "31,41,51";
+const PALETTE_INK_RGB: &str = "247,249,250";
 
 // ── Which base this install talks to ─────────────────────────────────────────
 //
@@ -551,7 +556,11 @@ fn render_card_svg(profile: &Profile) -> String {
     const PURPLE: &str = PALETTE_ACCENT;
 
     let name = profile.name.clone().unwrap_or_else(|| "".to_string());
-    let mut y: u32 = 190;
+    // Name baseline. The avatar's bottom edge is cy + r = 170, and a 26px bold
+    // name's cap height reaches ~19px above its baseline — at 190 that left
+    // about a pixel between them. 216 gives the photo breathing room, and
+    // matches Linkitylink's card; everything below lays out from `y`.
+    let mut y: u32 = 216;
     let mut body = String::new();
 
     // Avatar
@@ -562,7 +571,7 @@ fn render_card_svg(profile: &Profile) -> String {
         body.push_str(&format!(
             r#"<defs><clipPath id="avatarClip"><circle cx="{cx}" cy="{cy}" r="{r}"/></clipPath></defs>
 <image href="data:image/jpeg;base64,{photo}" x="{}" y="{}" width="{}" height="{}" preserveAspectRatio="xMidYMid slice" clip-path="url(#avatarClip)"/>
-<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{GREEN}" stroke-width="2"/>
+<circle cx="{cx}" cy="{cy}" r="{r}" fill="none" stroke="{PALETTE_MINT}" stroke-width="2"/>
 "#,
             cx - r,
             cy - r,
@@ -572,7 +581,7 @@ fn render_card_svg(profile: &Profile) -> String {
     } else {
         body.push_str(&format!(
             r#"<circle cx="{cx}" cy="{cy}" r="{r}" fill="{GREEN}"/>
-<text x="{cx}" y="{}" font-family="sans-serif" font-size="40" font-weight="bold" fill="{BG}" text-anchor="middle">{}</text>
+<text x="{cx}" y="{}" font-family="sans-serif" font-size="40" font-weight="bold" fill="{PALETTE_ON_GREEN}" text-anchor="middle">{}</text>
 "#,
             cy + 14,
             escape_xml(&get_initials(&name)),
@@ -581,7 +590,7 @@ fn render_card_svg(profile: &Profile) -> String {
 
     // Name
     body.push_str(&format!(
-        r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="26" font-weight="bold" fill="{GREEN}" text-anchor="middle">{}</text>
+        r#"<text x="{cx}" y="{y}" font-family="sans-serif" font-size="26" font-weight="bold" fill="{PALETTE_MINT}" text-anchor="middle">{}</text>
 "#,
         escape_xml(&name),
     ));
@@ -918,7 +927,7 @@ async fn publish_card(app: tauri::AppHandle, card_id: String) -> Result<Profile,
         serde_json::json!({
             "background": PALETTE_BG,
             "accent": PALETTE_GREEN,
-            "accentText": PALETTE_BG,
+            "accentText": PALETTE_ON_GREEN,
         }),
     );
 
@@ -1016,22 +1025,22 @@ fn render_referral_svg(app_store_url: &str) -> String {
     const BG: &str = PALETTE_BG;
     const GREEN: &str = PALETTE_GREEN;
     const PURPLE: &str = PALETTE_ACCENT;
-    const CARD_BACK: &str = PALETTE_GREEN_DARK;
+    const CARD_BACK: &str = PALETTE_GREEN;
 
     let cx = WIDTH / 2;
     let button_y: u32 = 300;
 
     format!(
         r#"<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" viewBox="0 0 {WIDTH} {HEIGHT}">
-<defs><linearGradient id="markGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{GREEN}"/><stop offset="100%" stop-color="{PURPLE}"/></linearGradient></defs>
+<defs><linearGradient id="markGradient" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" stop-color="{PALETTE_MINT}"/><stop offset="100%" stop-color="{PURPLE}"/></linearGradient></defs>
 <rect x="0" y="0" width="{WIDTH}" height="{HEIGHT}" fill="{BG}"/>
 <rect x="{}" y="58" width="140" height="95" rx="18" fill="{CARD_BACK}"/>
 <rect x="{}" y="83" width="140" height="95" rx="18" fill="url(#markGradient)"/>
 <circle cx="{}" cy="110" r="11" fill="{BG}"/>
-<text x="{cx}" y="216" font-family="sans-serif" font-size="34" font-weight="bold" fill="{GREEN}" text-anchor="middle">BizBuz</text>
+<text x="{cx}" y="216" font-family="sans-serif" font-size="34" font-weight="bold" fill="{PALETTE_MINT}" text-anchor="middle">BizBuz</text>
 <text x="{cx}" y="240" font-family="sans-serif" font-size="14" fill="rgba({PALETTE_INK_RGB},0.7)" text-anchor="middle">Digital business cards, made simple.</text>
 <text x="{cx}" y="270" font-family="sans-serif" font-size="14" fill="{PURPLE}" text-anchor="middle">You've been invited to try it out.</text>
-<a href="{}"><rect x="{}" y="{button_y}" width="240" height="56" rx="16" fill="{GREEN}"/><text x="{cx}" y="{}" font-family="sans-serif" font-size="18" font-weight="bold" fill="{BG}" text-anchor="middle">Get BizBuz</text></a>
+<a href="{}"><rect x="{}" y="{button_y}" width="240" height="56" rx="16" fill="{GREEN}"/><text x="{cx}" y="{}" font-family="sans-serif" font-size="18" font-weight="bold" fill="{PALETTE_ON_GREEN}" text-anchor="middle">Get BizBuz</text></a>
 <text x="{cx}" y="400" font-family="sans-serif" font-size="11" fill="rgba({PALETTE_INK_RGB},0.4)" text-anchor="middle">a Freyja offering</text>
 </svg>"#,
         cx - 90,

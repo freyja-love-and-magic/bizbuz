@@ -1,6 +1,6 @@
 name: bizbuz
 options:
-  bundleIdPrefix: com.freyja.bizbuz
+  bundleIdPrefix: club.home.bizbuz
   deploymentTarget:
     iOS: 15.0
 fileGroups: [../../src]
@@ -11,8 +11,8 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: BizBuz
-      PRODUCT_BUNDLE_IDENTIFIER: com.freyja.bizbuz
-      DEVELOPMENT_TEAM: RLJ2FY35FD
+      PRODUCT_BUNDLE_IDENTIFIER: club.home.bizbuz
+      DEVELOPMENT_TEAM: PCUFMY9NKZ
 targetTemplates:
   app:
     type: application

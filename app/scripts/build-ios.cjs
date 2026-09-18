@@ -34,6 +34,11 @@ const { execSync, spawnSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const TEAM_ID = 'PCUFMY9NKZ';
 
+// Xcode's "Build Rust Code" phase runs `tauri ios xcode-script ... ${FORCE_COLOR} ${ARCHS}`.
+// If FORCE_COLOR is inherited as a bare value (e.g. "3") it lands in the arch list and
+// tauri fails with "{arch} isn't a known arch". Tauri sets it itself when it wants it.
+delete process.env.FORCE_COLOR;
+
 // ── 1. Sync shared vCard module ───────────────────────────────────────────────
 execSync('node scripts/sync-shared.cjs', { stdio: 'inherit', cwd: ROOT });
 

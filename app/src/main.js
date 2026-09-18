@@ -726,14 +726,26 @@ function renderProfileFields() {
             valueInput.placeholder = 'Value';
             valueInput.value = entry.value;
 
-            const commit = () => {
+            // Write through on every keystroke, so pendingProfileFields (what
+            // Save sends) always matches what's on screen. Edits used to land
+            // only on Enter or ✓, so fixing a value and tapping Save saved the
+            // old one. Same fix as the card link editor.
+            const writeThrough = () => {
                 entry.name = nameInput.value.trim();
                 entry.value = valueInput.value.trim();
                 entry.slug = slugify(entry.name);
+            };
+            nameInput.addEventListener('input', writeThrough);
+            valueInput.addEventListener('input', writeThrough);
+
+            // Enter and ✓ only close the editor; the data is already in.
+            const commit = () => {
+                writeThrough();
                 editingProfileFieldIndex = null;
                 renderProfileFields();
             };
-            const onEnter = (e) => { if (e.key === 'Enter') commit(); };
+            // preventDefault: Enter in a form input is also an implicit Save.
+            const onEnter = (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } };
             nameInput.addEventListener('keydown', onEnter);
             valueInput.addEventListener('keydown', onEnter);
 
@@ -806,16 +818,45 @@ function renderProfileFields() {
     profileFieldLimitHint.hidden = !atLimit;
 }
 
-profileAddFieldBtn.addEventListener('click', () => {
+// Moves whatever is typed in the "Add Field" row into pendingProfileFields.
+// Shared by the Add button and Save — text left in the row used to be thrown
+// away on Save, since Save only sends the list. Returns false (after telling
+// the user why) when the row holds something that can't be added.
+function takeNewProfileField() {
     const name = profileNewFieldName.value.trim();
     const value = profileNewFieldValue.value.trim();
-    if (!name || !value || pendingProfileFields.length >= MAX_PROFILE_FIELDS) return;
+    if (!name && !value) return true;
+    if (!name || !value) {
+        setStatus(name ? `Add a value for "${name}".` : 'Give the new field a name.');
+        (name ? profileNewFieldValue : profileNewFieldName).focus();
+        return false;
+    }
+    if (pendingProfileFields.length >= MAX_PROFILE_FIELDS) {
+        setStatus(`Up to ${MAX_PROFILE_FIELDS} fields — remove one to add "${name}".`);
+        return false;
+    }
 
     pendingProfileFields.push({ slug: slugify(name), name, value });
     profileNewFieldName.value = '';
     profileNewFieldValue.value = '';
     renderProfileFields();
+    return true;
+}
+
+profileAddFieldBtn.addEventListener('click', () => {
+    if (!profileNewFieldName.value.trim() && !profileNewFieldValue.value.trim()) {
+        setStatus('Type a field name and value first.');
+        return;
+    }
+    takeNewProfileField();
 });
+
+// Enter in the Add row adds the field rather than submitting (saving) the form.
+for (const input of [profileNewFieldName, profileNewFieldValue]) {
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); profileAddFieldBtn.click(); }
+    });
+}
 
 profileChoosePhotoBtn.addEventListener('click', async () => {
     try {
@@ -880,6 +921,10 @@ function fillProfileForm(profile) {
     pendingProfilePhoto = profile?.photo || null;
     pendingProfileFields = (profile?.fields || []).map((f) => ({ ...f }));
     editingProfileFieldIndex = null;
+    // Save now adds whatever is left in the Add Field row, so text abandoned
+    // on a previous visit (Close, not Save) must not be saved on this one.
+    profileNewFieldName.value = '';
+    profileNewFieldValue.value = '';
     setAvatarContent(profilePhotoPreview, profile?.photo, '');
     renderProfileFields();
 }
@@ -911,6 +956,7 @@ profileNavBtn.addEventListener('click', async () => {
 
 profileForm.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (!takeNewProfileField()) return;
     try {
         await core.invoke('save_canonical_profile', { profile: canonicalProfileFromForm() });
         setStatus('Profile saved — shared across your apps.');

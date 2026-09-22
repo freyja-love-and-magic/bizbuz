@@ -1,6 +1,6 @@
 [package]
 name = "bizbuz"
-version = "0.1.0"
+version = "0.2.0"
 description = "BizBuz — create your digital business card and share it"
 authors = ["Freyja - Love and Magic"]
 edition = "2021"

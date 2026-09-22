@@ -49,8 +49,8 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 0.1.0
-        CFBundleVersion: "0.1.0"
+        CFBundleShortVersionString: 0.2.0
+        CFBundleVersion: "0.2.0"
     entitlements:
       path: bizbuz_iOS/bizbuz_iOS.entitlements
     scheme:

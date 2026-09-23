@@ -1357,7 +1357,7 @@ fn social_field_for_url(url: &str) -> Option<(&'static str, String)> {
 #[tauri::command]
 async fn import_from_linkitylink(app: tauri::AppHandle) -> Result<ImportFromLinkitylinkResult, String> {
     let raw = tauri_plugin_app_group::read_value_sync(&app, "linkitylink.card")?.ok_or_else(|| {
-        "Linkitylink hasn't shared anything yet — open Linkitylink and tap \u{201c}Share to App Group\u{201d} first.".to_string()
+        "Linkitylink hasn't shared anything yet. Open Linkitylink and tap \u{201c}Share to App Group\u{201d} first.".to_string()
     })?;
     let card: LinkitylinkCardMirror =
         serde_json::from_str(&raw).map_err(|e| format!("Couldn't read Linkitylink's shared card: {e}"))?;

@@ -196,7 +196,7 @@ importLinkitylinkBtn.addEventListener('click', async () => {
         }
         renderSocialsGrid();
         setStatus(r.skippedCount > 0
-            ? `Imported from Linkitylink — ${r.skippedCount} link${r.skippedCount === 1 ? '' : 's'} couldn't be imported (BizBuz supports Instagram, X, TikTok, YouTube, Facebook, LinkedIn, GitHub, Codeberg, and one website link).`
+            ? `Imported from Linkitylink. ${r.skippedCount} link${r.skippedCount === 1 ? '' : 's'} couldn't be imported (BizBuz supports Instagram, X, TikTok, YouTube, Facebook, LinkedIn, GitHub, Codeberg, and one website link).`
             : 'Imported from Linkitylink!');
     } catch (err) {
         setStatus(`${err}`); // Rust already returns a complete, user-facing sentence
@@ -210,7 +210,7 @@ shareAppGroupBtn.addEventListener('click', async () => {
     shareAppGroupBtn.disabled = true;
     try {
         await core.invoke('share_card_to_app_group', { cardId: activeCard.id });
-        setStatus('Shared — Linkitylink can now import this profile.');
+        setStatus('Shared. Linkitylink can now import this profile.');
     } catch (err) {
         setStatus(`Couldn't share: ${err}`);
     } finally {
@@ -477,7 +477,7 @@ function renderCard(card) {
         a.target = '_blank';
         a.rel = 'noopener noreferrer';
         a.style.color = s.hex;
-        a.title = `${s.label} — @${handle}`;
+        a.title = `${s.label}: @${handle}`;
         a.setAttribute('aria-label', `${s.label} @${handle}`);
         a.innerHTML = socialIconHtml(s);
         socialsRow.appendChild(a);
@@ -673,7 +673,7 @@ resetAllBtn.addEventListener('click', async () => {
         showView('cards');
         await refreshBaseInfo();
         renderStatePicker();
-        setStatus('Reset complete — fresh install state.');
+        setStatus('Reset complete. This is fresh install state.');
     } catch (err) {
         setStatus(`${err}`);
     } finally {
@@ -832,7 +832,7 @@ function takeNewProfileField() {
         return false;
     }
     if (pendingProfileFields.length >= MAX_PROFILE_FIELDS) {
-        setStatus(`Up to ${MAX_PROFILE_FIELDS} fields — remove one to add "${name}".`);
+        setStatus(`Up to ${MAX_PROFILE_FIELDS} fields. Remove one to add "${name}".`);
         return false;
     }
 
@@ -959,7 +959,7 @@ profileForm.addEventListener('submit', async (e) => {
     if (!takeNewProfileField()) return;
     try {
         await core.invoke('save_canonical_profile', { profile: canonicalProfileFromForm() });
-        setStatus('Profile saved — shared across your apps.');
+        setStatus('Profile saved. It is shared across your apps.');
         showView(preProfileView);
     } catch (err) {
         setStatus(`Couldn't save: ${err}`);

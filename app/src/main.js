@@ -347,25 +347,72 @@ function renderSocialDisclosure() {
 
 // ── Cards grid ────────────────────────────────────────────────────────────────
 
+
+// Inline so the tiles need no icon font or network fetch. Stroked with
+// currentColor, so each button's own colour applies.
+const ICON_SHARE =
+    '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M12 16V3"/><path d="M7 8l5-5 5 5"/><path d="M4 14v5a2 2 0 002 2h12a2 2 0 002-2v-5"/></svg>';
+const ICON_EDIT =
+    '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
+    + '<path d="M4 20h4L20 8l-4-4L4 16v4z"/></svg>';
+
 function renderCardsGrid() {
     cardsGrid.innerHTML = '';
 
     for (const card of cards) {
-        const tile = document.createElement('button');
-        tile.type = 'button';
+        // A container, not a button: the two real controls live inside it, and
+        // a button inside a button is invalid markup.
+        const tile = document.createElement('div');
         tile.className = 'card-tile filled';
+
+        // Edit fills the tile and sits under the share disc, so the card's
+        // own identity is part of what you tap to edit it.
+        const editBtn = document.createElement('button');
+        editBtn.type = 'button';
+        editBtn.className = 'tile-edit';
+        editBtn.setAttribute('aria-label', `Edit ${card.name || 'Untitled'}`);
 
         const avatar = document.createElement('div');
         avatar.className = 'avatar';
         setAvatarContent(avatar, card.photo, card.name || '');
-        tile.appendChild(avatar);
+        editBtn.appendChild(avatar);
 
         const name = document.createElement('span');
         name.className = 'card-tile-name';
         name.textContent = card.name || 'Untitled';
-        tile.appendChild(name);
+        editBtn.appendChild(name);
 
-        tile.addEventListener('click', () => openCard(card));
+        const editLabel = document.createElement('span');
+        editLabel.className = 'tile-edit-label';
+        editLabel.innerHTML = ICON_EDIT;
+        editLabel.appendChild(document.createTextNode('Edit'));
+        editBtn.appendChild(editLabel);
+
+        editBtn.addEventListener('click', () => openEditForCard(card));
+        tile.appendChild(editBtn);
+
+        const shareBtnTile = document.createElement('button');
+        shareBtnTile.type = 'button';
+        shareBtnTile.className = 'tile-share';
+        shareBtnTile.setAttribute('aria-label', `Share ${card.name || 'Untitled'}`);
+        shareBtnTile.innerHTML = ICON_SHARE;
+        const shareLabel = document.createElement('span');
+        shareLabel.className = 'tile-share-label';
+        shareLabel.textContent = 'Share';
+        shareBtnTile.appendChild(shareLabel);
+        shareBtnTile.addEventListener('click', async () => {
+            shareBtnTile.disabled = true;
+            try {
+                await shareCard(card);
+            } catch (err) {
+                setStatus(`Couldn't share: ${err}`);
+            } finally {
+                shareBtnTile.disabled = false;
+            }
+        });
+        tile.appendChild(shareBtnTile);
+
         cardsGrid.appendChild(tile);
     }
 
@@ -578,12 +625,19 @@ deleteCardBtn.addEventListener('click', async () => {
     }
 });
 
-document.getElementById('edit-btn').addEventListener('click', () => {
-    if (activeCard) fillForm(activeCard);
+// Shared by the detail view's Edit button and every tile's edit half.
+function openEditForCard(card) {
+    if (!card) return;
+    activeCard = card;
+    fillForm(card);
     disarmDelete();
     cancelEditBtn.hidden = false;
     deleteCardBtn.hidden = false;
     showView('edit');
+}
+
+document.getElementById('edit-btn').addEventListener('click', () => {
+    openEditForCard(activeCard);
 });
 
 backToCardsBtn.addEventListener('click', () => {

@@ -74,6 +74,30 @@ A third, independent record — separate from `cards.json` entirely — synced v
 
 Upload to App Store Connect is a deliberately separate, manual step (Transporter.app or `xcrun altool`) — the script never uploads anything itself. There's also a top-level `~/Work/planet-nine/builds/` folder holding one "latest" IPA per sibling app as a manually-maintained convenience copy — not written by this script.
 
+## Version trains
+
+App Store Connect closes a version train once a build has been submitted
+under it, and answers any further upload with:
+
+    Validation failed (409) Invalid Pre-Release Train. The train version
+    'X.Y.Z' is closed for new build submissions
+
+So every submission round needs a **new** version, and `CFBundleVersion` only
+has to be unique *within* a train, which means the build number restarts at 1
+rather than continuing. Bumping means three files plus the counter, and all
+four have to agree or the build lands in the wrong folder or gets rejected:
+
+- `app/src-tauri/tauri.conf.json` (drives `CFBundleShortVersionString` and the
+  `builds/vX.Y.Z/` folder `build-ios.cjs` writes to)
+- `app/package.json`
+- `app/src-tauri/Cargo.toml`
+- `app/.build-number` set to `0`, since the script writes `previous + 1`
+
+Trains used so far: 0.1.0 (released as 1.0 on the store), 0.2.0, 0.3.0. **The
+App Store version string and the version here do not correspond**: the listing
+showed 1.0 while this repo was on 0.1.0, which is expected and not worth
+reconciling.
+
 ## Known Limitations (documented, not oversights)
 
 - **Quick Actions plugin not registered**: `tauri-plugin-quick-actions`'s source (Rust + Swift) was lost to an accidental `git clean` and hasn't been rebuilt. The native `ios-native/BizbuzQuickActionsBridge.m` swizzling bridge still compiles in and is harmless, but nothing currently reads its pending-shortcut value back out to JS.
